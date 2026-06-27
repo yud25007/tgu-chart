@@ -57,6 +57,7 @@ TITLE_TYPE_LABELS = {
     "ideology": "思政",
     "practice": "实践",
 }
+DEPARTMENT_SIGNATURE_TEXT = "团学部门：团委实践部"
 STATIC_FILES = {
     "/": BASE_DIR / "index.html",
     "/index.html": BASE_DIR / "index.html",
@@ -531,9 +532,41 @@ def ensure_leading_blank_paragraphs(cell, count: int) -> None:
             cell._tc.append(new_paragraph)
 
 
+def paragraph_contains_text(paragraph, text: str) -> bool:
+    return text in paragraph.text
+
+
+def clone_paragraph_with_text(paragraph, text: str):
+    new_paragraph = deepcopy(paragraph._p)
+    text_elements = list(new_paragraph.iter(qn("w:t")))
+    if text_elements:
+        text_elements[0].text = text
+        for extra in text_elements[1:]:
+            extra.text = ""
+    return new_paragraph
+
+
+def ensure_department_signature_line(cell) -> None:
+    paragraphs = list(cell.paragraphs)
+    if any(paragraph_contains_text(paragraph, "团学部门") for paragraph in paragraphs):
+        return
+
+    signature_paragraph = next(
+        (paragraph for paragraph in paragraphs if paragraph_contains_text(paragraph, "辅导员签字")),
+        None,
+    )
+    if signature_paragraph is None:
+        return
+
+    department_paragraph = clone_paragraph_with_text(signature_paragraph, DEPARTMENT_SIGNATURE_TEXT)
+    signature_paragraph._p.addprevious(department_paragraph)
+
+
 def ensure_opinion_signature_spacing(table) -> None:
     opinion_row = table.rows[-1]
-    ensure_leading_blank_paragraphs(opinion_row.cells[1], 2)
+    signature_cell = opinion_row.cells[1]
+    ensure_leading_blank_paragraphs(signature_cell, 2)
+    ensure_department_signature_line(signature_cell)
 
 
 def element_has_visible_content(element) -> bool:
