@@ -874,6 +874,65 @@ def delete_record(record_id: int) -> bool:
     return True
 
 
+def delete_records(record_ids: list[int]) -> dict:
+    unique_ids = list(dict.fromkeys(record_ids))
+    if not unique_ids:
+        return {"deletedIds": [], "missingIds": [], "deletedCount": 0}
+
+    placeholders = ",".join("?" for _ in unique_ids)
+    with db_connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT id, output_filename
+            FROM records
+            WHERE id IN ({placeholders})
+            """,
+            unique_ids,
+        ).fetchall()
+        found_ids = {int(row["id"]) for row in rows}
+        conn.execute(
+            f"DELETE FROM records WHERE id IN ({placeholders})",
+            unique_ids,
+        )
+
+    for row in rows:
+        output_path = OUTPUT_DIR / row["output_filename"]
+        if output_path.exists():
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+
+    deleted_ids = [record_id for record_id in unique_ids if record_id in found_ids]
+    missing_ids = [record_id for record_id in unique_ids if record_id not in found_ids]
+    return {
+        "deletedIds": deleted_ids,
+        "missingIds": missing_ids,
+        "deletedCount": len(deleted_ids),
+    }
+
+
+def normalize_record_ids(value: object, limit: int = 100) -> list[int]:
+    if not isinstance(value, list):
+        raise ValidationError("请选择要删除的历史记录")
+    if len(value) > limit:
+        raise ValidationError(f"一次最多删除 {limit} 条历史记录")
+
+    record_ids: list[int] = []
+    for index, item in enumerate(value, start=1):
+        try:
+            record_id = int(item)
+        except (TypeError, ValueError):
+            raise ValidationError(f"第 {index} 个记录编号无效") from None
+        if record_id <= 0:
+            raise ValidationError(f"第 {index} 个记录编号无效")
+        record_ids.append(record_id)
+
+    if not record_ids:
+        raise ValidationError("请选择要删除的历史记录")
+    return record_ids
+
+
 def unix_to_text(timestamp: int | float) -> str:
     return datetime.fromtimestamp(timestamp, APP_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1235,6 +1294,9 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/import-roster":
             self.handle_import_roster()
             return
+        if parsed.path == "/records/batch-delete":
+            self.handle_batch_delete_records()
+            return
 
         if parsed.path != "/generate":
             self.send_error(HTTPStatus.NOT_FOUND, "File not found")
@@ -1280,6 +1342,21 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": False, "message": "记录不存在"}, status=HTTPStatus.NOT_FOUND)
             return
         self.send_json({"ok": True})
+
+    def handle_batch_delete_records(self) -> None:
+        try:
+            body = self.read_request_body(64 * 1024)
+            payload = json.loads(body.decode("utf-8") or "{}")
+            record_ids = normalize_record_ids(payload.get("recordIds"))
+            result = delete_records(record_ids)
+        except ValidationError as exc:
+            self.send_json({"ok": False, "message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
+        except Exception as exc:
+            self.send_json({"ok": False, "message": f"批量删除失败：{exc}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        self.send_json({"ok": True, **result})
 
     def read_request_body(self, max_size: int) -> bytes:
         body_size = int(self.headers.get("Content-Length", "0"))

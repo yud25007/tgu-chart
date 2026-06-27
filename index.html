@@ -96,7 +96,12 @@
               <h2 id="history-title">历史记录</h2>
               <p>本地长期保存，数据在当前文件夹。</p>
             </div>
-            <button class="secondary compact" type="button" id="refresh-history-btn">刷新</button>
+            <div class="history-tools">
+              <span id="history-selected-count">已选 0 条</span>
+              <button class="secondary compact" type="button" id="toggle-history-selection-btn">全选</button>
+              <button class="danger compact" type="button" id="bulk-delete-history-btn" disabled>批量删除</button>
+              <button class="secondary compact" type="button" id="refresh-history-btn">刷新</button>
+            </div>
           </div>
           <div class="history-list" id="history-list"></div>
         </section>

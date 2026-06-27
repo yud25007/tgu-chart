@@ -10,6 +10,9 @@ const entriesContainer = document.querySelector("#entries");
 const previewRows = document.querySelector("#preview-rows");
 const rowCount = document.querySelector("#row-count");
 const refreshHistoryButton = document.querySelector("#refresh-history-btn");
+const toggleHistorySelectionButton = document.querySelector("#toggle-history-selection-btn");
+const bulkDeleteHistoryButton = document.querySelector("#bulk-delete-history-btn");
+const historySelectedCount = document.querySelector("#history-selected-count");
 const historyList = document.querySelector("#history-list");
 const pageTitle = document.querySelector("#page-title");
 const titleTypeInputs = Array.from(document.querySelectorAll("input[name='titleType']"));
@@ -42,6 +45,7 @@ const preview = {
 
 let entries = [{ className: "", name: "", studentId: "", points: "" }];
 let historyRecords = [];
+const selectedHistoryIds = new Set();
 let titleTypeTouched = false;
 
 function todayISO() {
@@ -267,9 +271,25 @@ function historyMeta(record) {
   return parts.join(" · ");
 }
 
+function updateHistorySelectionControls() {
+  const visibleIds = new Set(historyRecords.map((record) => String(record.id)));
+  for (const recordId of [...selectedHistoryIds]) {
+    if (!visibleIds.has(recordId)) selectedHistoryIds.delete(recordId);
+  }
+
+  const selectedCount = selectedHistoryIds.size;
+  const allSelected = Boolean(historyRecords.length) && selectedCount === historyRecords.length;
+  historySelectedCount.textContent = `已选 ${selectedCount} 条`;
+  toggleHistorySelectionButton.textContent = allSelected ? "取消全选" : "全选";
+  toggleHistorySelectionButton.disabled = !historyRecords.length;
+  bulkDeleteHistoryButton.disabled = selectedCount === 0;
+}
+
 function renderHistory() {
   historyList.replaceChildren();
   if (!historyRecords.length) {
+    selectedHistoryIds.clear();
+    updateHistorySelectionControls();
     const empty = document.createElement("div");
     empty.className = "history-empty";
     empty.textContent = "还没有生成记录。";
@@ -285,7 +305,17 @@ function renderHistory() {
     const main = document.createElement("div");
     main.className = "history-main";
 
+    const selector = document.createElement("label");
+    selector.className = "history-select";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.action = "select";
+    checkbox.checked = selectedHistoryIds.has(String(record.id));
+    checkbox.ariaLabel = `选择历史记录：${record.activityName}`;
+    selector.append(checkbox);
+
     const text = document.createElement("div");
+    text.className = "history-text";
     const name = document.createElement("div");
     name.className = "history-name";
     name.textContent = record.activityName;
@@ -298,7 +328,7 @@ function renderHistory() {
     count.className = "status-pill";
     count.textContent = `${record.entryCount} 人`;
 
-    main.append(text, count);
+    main.append(selector, text, count);
 
     const actions = document.createElement("div");
     actions.className = "history-actions";
@@ -311,6 +341,8 @@ function renderHistory() {
     item.append(main, actions);
     historyList.append(item);
   });
+
+  updateHistorySelectionControls();
 }
 
 async function refreshHistory() {
@@ -323,6 +355,8 @@ async function refreshHistory() {
     historyRecords = result.records || [];
     renderHistory();
   } catch (error) {
+    selectedHistoryIds.clear();
+    updateHistorySelectionControls();
     historyList.innerHTML = `<div class="history-empty">${error.message}</div>`;
   }
 }
@@ -354,8 +388,43 @@ async function deleteHistoryRecord(recordId) {
   if (!response.ok || !result.ok) {
     throw new Error(result.message || "删除失败");
   }
+  selectedHistoryIds.delete(String(recordId));
   await refreshHistory();
   setMessage("历史记录已删除。", "success");
+}
+
+function toggleHistorySelection() {
+  if (!historyRecords.length) return;
+  const allSelected = selectedHistoryIds.size === historyRecords.length;
+  selectedHistoryIds.clear();
+  if (!allSelected) {
+    historyRecords.forEach((record) => selectedHistoryIds.add(String(record.id)));
+  }
+  renderHistory();
+}
+
+async function deleteSelectedHistoryRecords() {
+  const recordIds = [...selectedHistoryIds].map((recordId) => Number(recordId));
+  if (!recordIds.length) return;
+  if (!confirm(`批量删除选中的 ${recordIds.length} 条历史记录？`)) return;
+
+  bulkDeleteHistoryButton.disabled = true;
+  setMessage("正在批量删除历史记录...");
+
+  const response = await fetch("/records/batch-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recordIds }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) {
+    throw new Error(result.message || "批量删除失败");
+  }
+
+  (result.deletedIds || recordIds).forEach((recordId) => selectedHistoryIds.delete(String(recordId)));
+  await refreshHistory();
+  const missingText = result.missingIds?.length ? `，${result.missingIds.length} 条已不存在` : "";
+  setMessage(`已批量删除 ${result.deletedCount || 0} 条历史记录${missingText}。`, "success");
 }
 
 async function logout() {
@@ -619,6 +688,28 @@ form.addEventListener("submit", generateWord);
 resetButton.addEventListener("click", resetForm);
 logoutButton.addEventListener("click", logout);
 refreshHistoryButton.addEventListener("click", refreshHistory);
+toggleHistorySelectionButton.addEventListener("click", toggleHistorySelection);
+bulkDeleteHistoryButton.addEventListener("click", async () => {
+  try {
+    await deleteSelectedHistoryRecords();
+  } catch (error) {
+    setMessage(error.message, "error");
+    updateHistorySelectionControls();
+  }
+});
+historyList.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("input[data-action='select']");
+  if (!checkbox) return;
+  const item = checkbox.closest(".history-item");
+  const recordId = item?.dataset.id;
+  if (!recordId) return;
+  if (checkbox.checked) {
+    selectedHistoryIds.add(recordId);
+  } else {
+    selectedHistoryIds.delete(recordId);
+  }
+  updateHistorySelectionControls();
+});
 historyList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;

@@ -501,6 +501,24 @@ button:disabled {
   font-size: 13px;
 }
 
+.history-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-tools span {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .history-list {
   display: grid;
   gap: 10px;
@@ -665,8 +683,31 @@ button:disabled {
   margin-bottom: 10px;
 }
 
-.history-main > div:first-child {
+.history-text {
+  flex: 1 1 auto;
   min-width: 0;
+}
+
+.history-select {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.history-select input {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .history-name {
@@ -914,6 +955,14 @@ button:disabled {
     align-items: stretch;
   }
 
+  .history-tools {
+    justify-content: flex-start;
+  }
+
+  .history-tools .compact {
+    flex: 1 1 92px;
+  }
+
   .history-actions .compact {
     flex: 1 1 86px;
   }
@@ -990,6 +1039,15 @@ button:disabled {
 
   .history-main .status-pill {
     align-self: flex-start;
+  }
+
+  .history-main {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .history-main .status-pill {
+    grid-column: 2;
   }
 
   textarea {
