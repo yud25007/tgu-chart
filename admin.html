@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>管理后台 - 学分记录表工具</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="admin-shell">
+      <section class="admin-panel" aria-labelledby="admin-title">
+        <div class="title-row">
+          <div>
+            <p class="eyebrow">电气工程学院</p>
+            <h1 id="admin-title">管理后台</h1>
+          </div>
+          <div class="title-actions">
+            <a class="secondary compact button-link" href="/">返回表单</a>
+            <button class="secondary compact" type="button" id="admin-refresh-btn">刷新</button>
+            <button class="secondary compact" type="button" id="admin-logout-btn">退出登录</button>
+          </div>
+        </div>
+
+        <section class="admin-stats" aria-label="登录概览">
+          <article class="stat-card">
+            <span>当前在线</span>
+            <strong id="stat-online">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>在线 IP</span>
+            <strong id="stat-online-ip">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>24h 成功</span>
+            <strong id="stat-success">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>24h 失败</span>
+            <strong id="stat-failed">0</strong>
+          </article>
+        </section>
+
+        <p class="admin-meta" id="admin-meta">等待刷新...</p>
+
+        <section class="admin-section" aria-labelledby="online-title">
+          <div class="history-title-row">
+            <div>
+              <h2 id="online-title">当前在线</h2>
+              <p>按最近活跃时间计算。</p>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>IP 地址</th>
+                  <th>登录时间</th>
+                  <th>最近活跃</th>
+                  <th>浏览器</th>
+                </tr>
+              </thead>
+              <tbody id="online-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="admin-section" aria-labelledby="login-title">
+          <div class="history-title-row">
+            <div>
+              <h2 id="login-title">最近登录情况</h2>
+              <p>包含成功与失败的登录尝试。</p>
+            </div>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>IP 地址</th>
+                  <th>时间</th>
+                  <th>浏览器</th>
+                </tr>
+              </thead>
+              <tbody id="login-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/admin.js"></script>
+  </body>
+</html>

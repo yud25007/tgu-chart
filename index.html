@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>思政学分记录表自动生成器</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="form-panel" aria-labelledby="page-title">
+        <div class="title-row">
+          <div>
+            <p class="eyebrow">电气工程学院</p>
+            <h1 id="page-title">思政学分记录表</h1>
+          </div>
+          <div class="title-actions">
+            <div class="status-pill" id="server-status">本地模板</div>
+            <a class="secondary compact button-link" href="/admin">后台</a>
+            <button class="secondary compact" type="button" id="logout-btn">退出登录</button>
+          </div>
+        </div>
+
+        <form id="auto-form" autocomplete="off">
+          <div class="field wide">
+            <label>表单标题</label>
+            <div class="segmented-control" role="radiogroup" aria-label="表单标题">
+              <label class="segmented-option">
+                <input type="radio" name="titleType" value="ideology" checked />
+                <span>思政学分记录表</span>
+              </label>
+              <label class="segmented-option">
+                <input type="radio" name="titleType" value="practice" />
+                <span>实践学分记录表</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field wide">
+            <label for="activityName">活动名称</label>
+            <input id="activityName" name="activityName" type="text" placeholder="例如：暑期社会实践动员会" required />
+          </div>
+
+          <div class="field">
+            <label for="date">日期</label>
+            <input id="date" name="date" type="date" required />
+          </div>
+
+          <div class="field">
+            <label for="creditType">加分类型</label>
+            <input id="creditType" name="creditType" type="text" value="思政学分" required />
+          </div>
+
+          <div class="field">
+            <label for="defaultPoints">默认加分数量</label>
+            <input id="defaultPoints" name="defaultPoints" type="text" inputmode="decimal" placeholder="例如：0.2" />
+          </div>
+
+          <div class="field wide">
+            <label for="rosterFile">上传 Excel 名单</label>
+            <input id="rosterFile" name="rosterFile" type="file" accept=".xlsx" />
+          </div>
+
+          <div class="field wide">
+            <label for="batchText">批量粘贴</label>
+            <textarea id="batchText" name="batchText" rows="4" placeholder="电气2402 张三 2024000001&#10;电气2503 李四 2025000002"></textarea>
+          </div>
+
+          <div class="roster-toolbar wide">
+            <span id="row-count">0 人</span>
+            <button class="secondary compact" type="button" id="import-btn">导入 Excel</button>
+            <button class="secondary compact" type="button" id="parse-btn">识别名单</button>
+            <button class="secondary compact" type="button" id="add-row-btn">新增一行</button>
+          </div>
+
+          <div class="roster-table wide" aria-label="名单明细">
+            <div class="roster-head">班级</div>
+            <div class="roster-head">姓名</div>
+            <div class="roster-head">学号</div>
+            <div class="roster-head">加分数量</div>
+            <div class="roster-head"></div>
+            <div id="entries"></div>
+          </div>
+
+          <div class="actions">
+            <button class="secondary" type="button" id="reset-btn">清空</button>
+            <button class="primary" type="submit" id="submit-btn">生成 Word</button>
+          </div>
+        </form>
+
+        <p class="message" id="message" role="status" aria-live="polite"></p>
+
+        <section class="history-panel" aria-labelledby="history-title">
+          <div class="history-title-row">
+            <div>
+              <h2 id="history-title">历史记录</h2>
+              <p>本地长期保存，数据在当前文件夹。</p>
+            </div>
+            <button class="secondary compact" type="button" id="refresh-history-btn">刷新</button>
+          </div>
+          <div class="history-list" id="history-list"></div>
+        </section>
+      </section>
+
+      <aside class="preview-panel" aria-label="模板预览">
+        <div class="paper">
+          <h2 id="preview-title">电气工程学院思政学分记录表</h2>
+          <div class="table-preview">
+            <div class="cell full"><strong>活动名称：</strong><span id="preview-activity"></span><strong>时间：</strong><span id="preview-date"></span></div>
+            <div id="preview-rows"></div>
+            <div class="cell opinion">学院意见</div>
+            <div class="cell sign"><br /><br />辅导员签字：<br />盖章：（学院团委章）<br />年&nbsp;&nbsp;&nbsp;月&nbsp;&nbsp;&nbsp;日</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

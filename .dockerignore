@@ -1,0 +1,15 @@
+.DS_Store
+.git/
+.gitignore
+.env
+.env.*
+__pycache__/
+*.pyc
+.playwright-cli/
+.wrangler/
+wrangler.toml
+tmp/
+data/
+output/
+*.sqlite3
+*.db

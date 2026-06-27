@@ -1,0 +1,13 @@
+name = "your-worker-name"
+main = "worker/index.js"
+compatibility_date = "2026-06-27"
+account_id = "your-cloudflare-account-id"
+workers_dev = false
+
+routes = [
+  { pattern = "your-domain.example.com", custom_domain = true, zone_name = "example.com" }
+]
+
+[[vpc_services]]
+binding = "TGU_CHART"
+service_id = "your-vpc-service-id"

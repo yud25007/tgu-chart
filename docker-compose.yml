@@ -1,0 +1,39 @@
+services:
+  tgu-chart:
+    build: .
+    container_name: tgu-chart
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      OPEN_BROWSER: "0"
+      DATA_DIR: /app/data
+      OUTPUT_DIR: /app/output/doc
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD in .env}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "127.0.0.1:18095:8080"
+    volumes:
+      - ./data:/app/data
+      - ./output/doc:/app/output/doc
+    networks:
+      default:
+        ipv4_address: 172.28.0.2
+
+  tgu-chart-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tgu-chart-tunnel
+    restart: unless-stopped
+    depends_on:
+      - tgu-chart
+    command: tunnel --no-autoupdate run --token ${TGU_CHART_TUNNEL_TOKEN}
+    networks:
+      default:
+        ipv4_address: 172.28.0.3
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
