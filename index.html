@@ -37,6 +37,20 @@
           </div>
 
           <div class="field wide">
+            <label>计分方式</label>
+            <div class="segmented-control" role="radiogroup" aria-label="计分方式">
+              <label class="segmented-option">
+                <input type="radio" name="scoreMode" value="points" checked />
+                <span>直接填写分数</span>
+              </label>
+              <label class="segmented-option">
+                <input type="radio" name="scoreMode" value="count" />
+                <span>按次数计算</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field wide">
             <label for="activityName">活动名称</label>
             <input id="activityName" name="activityName" type="text" placeholder="例如：暑期社会实践动员会" required />
           </div>
@@ -52,7 +66,7 @@
           </div>
 
           <div class="field">
-            <label for="defaultPoints">默认加分数量</label>
+            <label for="defaultPoints" id="default-points-label">默认加分数量</label>
             <input id="defaultPoints" name="defaultPoints" type="text" inputmode="decimal" placeholder="例如：0.2" />
           </div>
 
@@ -77,7 +91,7 @@
             <div class="roster-head">班级</div>
             <div class="roster-head">姓名</div>
             <div class="roster-head">学号</div>
-            <div class="roster-head">加分数量</div>
+            <div class="roster-head" id="points-head">加分数量</div>
             <div class="roster-head"></div>
             <div id="entries"></div>
           </div>

@@ -23,6 +23,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from zoneinfo import ZoneInfo
+from decimal import Decimal, InvalidOperation
 
 try:
     from docx import Document
@@ -148,6 +149,7 @@ def init_db() -> None:
                 activity_name TEXT NOT NULL,
                 activity_date TEXT NOT NULL,
                 title_type TEXT NOT NULL DEFAULT 'ideology',
+                score_mode TEXT NOT NULL DEFAULT 'points',
                 credit_type TEXT NOT NULL,
                 default_points TEXT NOT NULL DEFAULT '',
                 entry_count INTEGER NOT NULL,
@@ -163,6 +165,7 @@ def init_db() -> None:
                 class_name TEXT NOT NULL,
                 name TEXT NOT NULL DEFAULT '',
                 student_id TEXT NOT NULL,
+                count_value TEXT NOT NULL DEFAULT '',
                 points TEXT NOT NULL
             );
 
@@ -199,6 +202,12 @@ def ensure_record_schema(conn: sqlite3.Connection) -> None:
     if "title_type" not in columns:
         conn.execute("ALTER TABLE records ADD COLUMN title_type TEXT NOT NULL DEFAULT 'ideology'")
         conn.execute("UPDATE records SET title_type = 'practice' WHERE credit_type LIKE '%实践%'")
+    if "score_mode" not in columns:
+        conn.execute("ALTER TABLE records ADD COLUMN score_mode TEXT NOT NULL DEFAULT 'points'")
+
+    entry_columns = {row["name"] for row in conn.execute("PRAGMA table_info(record_entries)").fetchall()}
+    if "count_value" not in entry_columns:
+        conn.execute("ALTER TABLE record_entries ADD COLUMN count_value TEXT NOT NULL DEFAULT ''")
 
 
 def first_free_port(start: int = 8765, host: str = "127.0.0.1") -> int:
@@ -249,22 +258,80 @@ def normalize_title_type(value: object, credit_type: str) -> str:
     return aliases.get(text, infer_title_type(credit_type))
 
 
+def normalize_score_mode(value: object) -> str:
+    text = clean_optional_text(value, 20)
+    aliases = {
+        "points": "points",
+        "point": "points",
+        "direct": "points",
+        "fixed": "points",
+        "分数": "points",
+        "直接": "points",
+        "直接填写分数": "points",
+        "count": "count",
+        "counts": "count",
+        "times": "count",
+        "次数": "count",
+        "按次数": "count",
+        "按次数计算": "count",
+    }
+    return aliases.get(text, "points")
+
+
 def document_title_text(title_type: str) -> str:
     return f"电气工程学院{TITLE_TYPE_LABELS.get(title_type, TITLE_TYPE_LABELS['ideology'])}学分记录表"
 
 
-def normalize_entry(entry: dict, index: int, default_points: str) -> dict:
+def parse_positive_decimal(text: str, label: str, index: int | None = None) -> Decimal:
+    try:
+        value = Decimal(text)
+    except (InvalidOperation, ValueError):
+        prefix = f"第 {index} 行" if index is not None else ""
+        raise ValidationError(f"{prefix}{label}必须是数字") from None
+    if value <= 0:
+        prefix = f"第 {index} 行" if index is not None else ""
+        raise ValidationError(f"{prefix}{label}必须大于 0")
+    return value
+
+
+def decimal_to_text(value: Decimal) -> str:
+    text = format(value.normalize(), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def calculated_points_from_count(count_text: str, base_points_text: str, index: int) -> str:
+    count = parse_positive_decimal(count_text, "次数", index)
+    base_points = parse_positive_decimal(base_points_text, "基准分数")
+    return decimal_to_text(count * base_points)
+
+
+def normalize_entry(entry: dict, index: int, default_points: str, score_mode: str) -> dict:
     class_name = clean_optional_text(entry.get("className"), 40)
     name = clean_optional_text(entry.get("name"), 40)
     student_id = clean_optional_text(entry.get("studentId"), 40)
-    points = clean_optional_text(entry.get("points"), 20) or default_points
+    count_value = clean_optional_text(entry.get("count"), 20) or clean_optional_text(entry.get("countValue"), 20)
+    points = clean_optional_text(entry.get("points"), 20)
 
-    if not class_name and not name and not student_id and not points:
+    if score_mode == "count":
+        if not default_points:
+            raise ValidationError("请填写基准分数")
+        if not count_value:
+            points = ""
+        else:
+            points = calculated_points_from_count(count_value, default_points, index)
+    else:
+        points = points or default_points
+
+    if not class_name and not name and not student_id and not points and not count_value:
         raise ValidationError(f"第 {index} 行是空行")
     if not class_name:
         raise ValidationError(f"请填写第 {index} 行班级")
     if not student_id:
         raise ValidationError(f"请填写第 {index} 行学号")
+    if score_mode == "count" and not count_value:
+        raise ValidationError(f"请填写第 {index} 行次数")
     if not points:
         raise ValidationError(f"请填写第 {index} 行加分数量")
 
@@ -272,6 +339,7 @@ def normalize_entry(entry: dict, index: int, default_points: str) -> dict:
         "class_name": class_name,
         "name": name,
         "student_id": student_id,
+        "count_value": count_value,
         "points": points,
     }
 
@@ -287,6 +355,7 @@ def ensure_no_duplicate_student_ids(entries: list[dict]) -> None:
 
 def normalize_payload(payload: dict) -> dict:
     default_points = clean_optional_text(payload.get("defaultPoints"), 20)
+    score_mode = normalize_score_mode(payload.get("scoreMode"))
     entries_payload = payload.get("entries")
 
     if isinstance(entries_payload, list):
@@ -294,7 +363,7 @@ def normalize_payload(payload: dict) -> dict:
             entry
             for entry in entries_payload
             if isinstance(entry, dict)
-            and any(str(entry.get(key, "")).strip() for key in ("className", "studentId", "points"))
+            and any(str(entry.get(key, "")).strip() for key in ("className", "studentId", "points", "count", "countValue"))
         ]
     else:
         non_empty_entries = []
@@ -305,6 +374,7 @@ def normalize_payload(payload: dict) -> dict:
                 "className": payload.get("className"),
                 "name": payload.get("name"),
                 "studentId": payload.get("studentId"),
+                "count": payload.get("count") or payload.get("countValue"),
                 "points": payload.get("points") or default_points,
             }
         ]
@@ -313,7 +383,7 @@ def normalize_payload(payload: dict) -> dict:
         raise ValidationError("一次最多生成 120 条明细")
 
     entries = [
-        normalize_entry(entry, index + 1, default_points)
+        normalize_entry(entry, index + 1, default_points, score_mode)
         for index, entry in enumerate(non_empty_entries)
     ]
     ensure_no_duplicate_student_ids(entries)
@@ -323,6 +393,7 @@ def normalize_payload(payload: dict) -> dict:
     return {
         "activity_name": require_text(payload, "activityName", "活动名称", 120),
         "date": require_text(payload, "date", "日期", 40),
+        "score_mode": score_mode,
         "default_points": default_points,
         "entries": entries,
         "credit_type": credit_type,
@@ -613,6 +684,7 @@ def find_header_map(rows: list[list[str]]) -> tuple[int, dict[str, int]]:
         "name": ("姓名", "名字", "学生姓名"),
         "studentId": ("学号", "学生号", "学籍号"),
         "points": ("加分", "加分数量", "学分", "所获学分", "分数"),
+        "count": ("次数", "参加次数", "活动次数", "签到次数", "参与次数"),
     }
 
     for row_index, row in enumerate(rows[:12]):
@@ -634,7 +706,7 @@ def looks_like_student_id(value: str) -> bool:
 
 
 def infer_entry_from_row(row: list[str]) -> dict:
-    entry = {"className": "", "name": "", "studentId": "", "points": ""}
+    entry = {"className": "", "name": "", "studentId": "", "points": "", "count": ""}
     for value in row:
         if not value:
             continue
@@ -703,6 +775,7 @@ def parse_workbook_entries(file_bytes: bytes, file_name: str = "") -> dict:
                 "name": mapped_value("name"),
                 "studentId": mapped_value("studentId"),
                 "points": mapped_value("points"),
+                "count": mapped_value("count"),
             }
         else:
             entry = infer_entry_from_row(row)
@@ -733,6 +806,8 @@ def parse_workbook_entries(file_bytes: bytes, file_name: str = "") -> dict:
         "entries": entries,
         "warnings": warnings,
         "headerDetected": bool(header_map),
+        "hasCountColumn": "count" in header_map,
+        "hasPointsColumn": "points" in header_map,
         "columns": header_map,
         "inferred": infer_metadata_from_filename(file_name),
     }
@@ -792,6 +867,7 @@ def record_to_client(row: sqlite3.Row) -> dict:
         "activityName": row["activity_name"],
         "date": row["activity_date"],
         "titleType": title_type,
+        "scoreMode": row["score_mode"] if "score_mode" in row.keys() else "points",
         "recordTitle": document_title_text(title_type),
         "creditType": row["credit_type"],
         "defaultPoints": row["default_points"],
@@ -807,6 +883,7 @@ def entry_to_client(row: sqlite3.Row) -> dict:
         "className": row["class_name"],
         "name": row["name"],
         "studentId": row["student_id"],
+        "count": row["count_value"] if "count_value" in row.keys() else "",
         "points": row["points"],
     }
 
@@ -817,15 +894,16 @@ def save_generation_record(data: dict, filename: str) -> int:
         cursor = conn.execute(
             """
             INSERT INTO records (
-                activity_name, activity_date, title_type, credit_type, default_points,
+                activity_name, activity_date, title_type, score_mode, credit_type, default_points,
                 entry_count, output_filename, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["activity_name"],
                 data["date"],
                 data["title_type"],
+                data.get("score_mode", "points"),
                 data["credit_type"],
                 data.get("default_points", ""),
                 len(data["entries"]),
@@ -838,9 +916,9 @@ def save_generation_record(data: dict, filename: str) -> int:
         conn.executemany(
             """
             INSERT INTO record_entries (
-                record_id, sort_order, class_name, name, student_id, points
+                record_id, sort_order, class_name, name, student_id, count_value, points
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -849,6 +927,7 @@ def save_generation_record(data: dict, filename: str) -> int:
                     entry["class_name"],
                     entry.get("name", ""),
                     entry["student_id"],
+                    entry.get("count_value", ""),
                     entry["points"],
                 )
                 for index, entry in enumerate(data["entries"])

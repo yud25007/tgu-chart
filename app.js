@@ -16,6 +16,9 @@ const historySelectedCount = document.querySelector("#history-selected-count");
 const historyList = document.querySelector("#history-list");
 const pageTitle = document.querySelector("#page-title");
 const titleTypeInputs = Array.from(document.querySelectorAll("input[name='titleType']"));
+const scoreModeInputs = Array.from(document.querySelectorAll("input[name='scoreMode']"));
+const defaultPointsLabel = document.querySelector("#default-points-label");
+const pointsHead = document.querySelector("#points-head");
 
 const TITLE_TYPES = {
   ideology: {
@@ -43,7 +46,7 @@ const preview = {
   date: document.querySelector("#preview-date"),
 };
 
-let entries = [{ className: "", name: "", studentId: "", points: "" }];
+let entries = [{ className: "", name: "", studentId: "", points: "", count: "" }];
 let historyRecords = [];
 const selectedHistoryIds = new Set();
 let titleTypeTouched = false;
@@ -104,8 +107,40 @@ function syncCreditTypeFromTitle(type) {
   }
 }
 
+function selectedScoreMode() {
+  return scoreModeInputs.find((input) => input.checked)?.value || "points";
+}
+
+function setScoreMode(mode) {
+  const nextMode = mode === "count" ? "count" : "points";
+  scoreModeInputs.forEach((input) => {
+    input.checked = input.value === nextMode;
+  });
+  updateScoreModeUI();
+}
+
+function isCountMode() {
+  return selectedScoreMode() === "count";
+}
+
+function decimalProductText(left, right) {
+  const leftNumber = Number(left);
+  const rightNumber = Number(right);
+  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber) || leftNumber <= 0 || rightNumber <= 0) {
+    return "";
+  }
+  return (leftNumber * rightNumber).toFixed(6).replace(/\.?0+$/, "");
+}
+
+function updateScoreModeUI() {
+  const countMode = isCountMode();
+  defaultPointsLabel.textContent = countMode ? "基准分数" : "默认加分数量";
+  fields.defaultPoints.placeholder = countMode ? "例如：0.2（每次）" : "例如：0.2";
+  pointsHead.textContent = countMode ? "次数" : "加分数量";
+}
+
 function emptyEntry() {
-  return { className: "", name: "", studentId: "", points: "" };
+  return { className: "", name: "", studentId: "", points: "", count: "" };
 }
 
 function normalizeEntry(entry) {
@@ -113,12 +148,13 @@ function normalizeEntry(entry) {
     className: String(entry.className || "").trim(),
     name: String(entry.name || "").trim(),
     studentId: String(entry.studentId || "").trim(),
+    count: String(entry.count || entry.countValue || "").trim(),
     points: String(entry.points || "").trim(),
   };
 }
 
 function isBlankEntry(entry) {
-  return !entry.className && !entry.name && !entry.studentId && !entry.points;
+  return !entry.className && !entry.name && !entry.studentId && !entry.points && !entry.count;
 }
 
 function nonEmptyEntries() {
@@ -126,10 +162,16 @@ function nonEmptyEntries() {
 }
 
 function entryPoints(entry) {
+  if (isCountMode()) {
+    return decimalProductText(entry.count, fields.defaultPoints.value.trim());
+  }
   return entry.points || fields.defaultPoints.value.trim();
 }
 
 function entryIsReady(entry) {
+  if (isCountMode()) {
+    return Boolean(entry.className && entry.studentId && entry.count && entryPoints(entry));
+  }
   return Boolean(entry.className && entry.studentId && entryPoints(entry));
 }
 
@@ -189,6 +231,7 @@ function inputFor(entry, field, placeholder, inputMode = "text") {
 }
 
 function renderEntries() {
+  updateScoreModeUI();
   entriesContainer.replaceChildren();
 
   entries.forEach((rawEntry, index) => {
@@ -206,8 +249,10 @@ function renderEntries() {
     const studentInput = inputFor(entry, "studentId", "2024000001", "numeric");
     studentInput.dataset.invalid = String(rowStarted && !entry.studentId);
 
-    const pointsInput = inputFor(entry, "points", fields.defaultPoints.value || "默认", "decimal");
-    pointsInput.dataset.invalid = String(rowStarted && !entryPoints(entry));
+    const valueField = isCountMode() ? "count" : "points";
+    const valuePlaceholder = isCountMode() ? "次数" : (fields.defaultPoints.value || "默认");
+    const pointsInput = inputFor(entry, valueField, valuePlaceholder, "decimal");
+    pointsInput.dataset.invalid = String(rowStarted && (isCountMode() ? !entry.count : !entryPoints(entry)));
 
     const removeButton = document.createElement("button");
     removeButton.className = "remove-row";
@@ -228,6 +273,7 @@ function collectPayload() {
     activityName: fields.activityName.value.trim(),
     date: fields.date.value.trim(),
     titleType: selectedTitleType(),
+    scoreMode: selectedScoreMode(),
     creditType: fields.creditType.value.trim(),
     defaultPoints: fields.defaultPoints.value.trim(),
     entries: nonEmptyEntries(),
@@ -239,6 +285,7 @@ function applyRecord(record) {
   fields.date.value = record.date || todayISO();
   fields.creditType.value = record.creditType || "思政学分";
   setTitleType(record.titleType || inferTitleType(fields.creditType.value));
+  setScoreMode(record.scoreMode || "points");
   titleTypeTouched = false;
   fields.defaultPoints.value = record.defaultPoints || "";
   fields.batchText.value = "";
@@ -254,9 +301,18 @@ function validateEntries(payload) {
     throw new Error("请至少导入或填写 1 条名单明细。");
   }
 
-  const badIndex = payload.entries.findIndex((entry) => !entry.className || !entry.studentId || !entryPoints(entry));
+  if (payload.scoreMode === "count" && !payload.defaultPoints) {
+    throw new Error("按次数计算时，请填写基准分数。");
+  }
+
+  const badIndex = payload.entries.findIndex((entry) => {
+    if (!entry.className || !entry.studentId) return true;
+    if (payload.scoreMode === "count") return !entry.count || !entryPoints(entry);
+    return !entryPoints(entry);
+  });
   if (badIndex !== -1) {
-    throw new Error(`第 ${badIndex + 1} 行缺少班级、学号或加分数量，请补齐后再生成。`);
+    const valueLabel = payload.scoreMode === "count" ? "次数" : "加分数量";
+    throw new Error(`第 ${badIndex + 1} 行缺少班级、学号或${valueLabel}，请补齐后再生成。`);
   }
 }
 
@@ -471,7 +527,10 @@ function cleanPoint(token) {
 function parseRosterLine(line) {
   const tokens = normalizeTokens(line);
   if (tokens.length < 2) return null;
-  if (tokens.some((token) => /班级|学号|姓名/.test(token))) return null;
+  if (tokens.some((token) => (
+    /班级|学号|姓名/.test(token)
+    || /^(次数|参加次数|活动次数|签到次数|参与次数|加分|加分数量|加分类型|学分|所获学分|分数)$/.test(token)
+  ))) return null;
 
   const studentIndex = tokens.findIndex((token) => cleanStudentId(token));
   if (studentIndex === -1) return null;
@@ -510,10 +569,12 @@ function parseRosterLine(line) {
   const className = classIndex >= 0 ? tokens[classIndex] : "";
   const name = nameIndex >= 0 ? tokens[nameIndex] : "";
   const studentId = cleanStudentId(tokens[studentIndex]);
-  const points = pointIndex >= 0 ? cleanPoint(tokens[pointIndex]) : fields.defaultPoints.value.trim();
+  const scoreValue = pointIndex >= 0 ? cleanPoint(tokens[pointIndex]) : "";
+  const points = isCountMode() ? "" : (scoreValue || fields.defaultPoints.value.trim());
+  const count = isCountMode() ? scoreValue : "";
 
   if (!className || !studentId) return null;
-  return { className, name, studentId, points };
+  return { className, name, studentId, points, count };
 }
 
 function parseRosterText(text) {
@@ -576,11 +637,18 @@ async function importRosterFile() {
       fields.date.value = inferred.date;
     }
 
+    const hasCountOnly = result.hasCountColumn && !result.hasPointsColumn;
+    if (hasCountOnly) {
+      setScoreMode("count");
+    }
+
     entries = result.entries.map(normalizeEntry);
     renderEntries();
 
     const warnings = [...(result.warnings || [])];
-    if (!fields.defaultPoints.value.trim() && entries.every((entry) => !entry.points)) {
+    if (isCountMode() && !fields.defaultPoints.value.trim()) {
+      warnings.push(result.hasCountColumn ? "Excel 有次数列，请填写基准分数" : "按次数计算时，请填写基准分数");
+    } else if (!fields.defaultPoints.value.trim() && entries.every((entry) => !entry.points)) {
       warnings.push("Excel 没有加分列，请填写默认加分数量");
     }
     const warningText = warnings.length ? `，${warnings.join("；")}` : "";
@@ -635,6 +703,7 @@ function resetForm() {
   fields.date.value = todayISO();
   fields.creditType.value = "思政学分";
   setTitleType("ideology");
+  setScoreMode("points");
   titleTypeTouched = false;
   entries = [emptyEntry()];
   renderEntries();
@@ -665,6 +734,13 @@ Object.entries(fields).forEach(([name, field]) => {
     if (name === "creditType") {
       syncTitleTypeFromCreditType();
     }
+    if (name === "defaultPoints") {
+      renderEntries();
+      if (field.value.trim() && /基准分数/.test(message.textContent)) {
+        setMessage("");
+      }
+      return;
+    }
     updatePreview();
   });
 });
@@ -674,6 +750,18 @@ titleTypeInputs.forEach((input) => {
     titleTypeTouched = true;
     syncCreditTypeFromTitle(input.value);
     updatePreview();
+  });
+});
+
+scoreModeInputs.forEach((input) => {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    renderEntries();
+    if (isCountMode() && !fields.defaultPoints.value.trim()) {
+      setMessage("按次数计算时，请填写基准分数。");
+    } else {
+      setMessage("");
+    }
   });
 });
 
