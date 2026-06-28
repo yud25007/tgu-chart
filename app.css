@@ -53,12 +53,12 @@ textarea,
 }
 
 .app-shell {
-  width: min(1360px, calc(100vw - 48px));
+  width: min(1400px, calc(100vw - 48px));
   min-height: 100vh;
   margin: 0 auto;
   padding: 32px 0;
   display: grid;
-  grid-template-columns: minmax(520px, 600px) minmax(0, 1fr);
+  grid-template-columns: minmax(560px, 640px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -525,8 +525,8 @@ button:disabled {
 
 .history-search {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 0.95fr) minmax(92px, 0.56fr) auto;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(142px, 0.72fr) minmax(88px, 0.44fr);
+  gap: 10px 12px;
   align-items: end;
   margin-bottom: 12px;
   padding: 12px;
@@ -540,6 +540,10 @@ button:disabled {
   min-height: 40px;
 }
 
+.history-search-actions {
+  grid-column: 1 / -1;
+}
+
 .history-search-actions,
 .history-page-actions {
   display: flex;
@@ -549,7 +553,7 @@ button:disabled {
 }
 
 .history-search-actions {
-  min-width: 164px;
+  min-width: 0;
 }
 
 .history-pagination {
@@ -1132,6 +1136,7 @@ button:disabled {
 
   .history-main .status-pill {
     grid-column: 2;
+    justify-self: start;
   }
 
   .history-search {
