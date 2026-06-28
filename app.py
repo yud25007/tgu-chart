@@ -55,6 +55,7 @@ AUTH_COOKIE_NAME = "tgu_chart_auth"
 ADMIN_AUTH_COOKIE_NAME = "tgu_chart_admin_auth"
 AUTH_MAX_AGE = 60 * 60 * 24 * 7
 AUTH_ONLINE_WINDOW = int(os.environ.get("AUTH_ONLINE_WINDOW_SECONDS", str(15 * 60)))
+LOGIN_EVENT_KEEP_LIMIT = 10
 APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Shanghai"))
 DETAIL_START_ROW = 1
 DETAIL_TEMPLATE_ROW = 3
@@ -1338,6 +1339,18 @@ def record_login_event(ip: str, user_agent: str, success: bool, session_id: str 
             """,
             (ip, user_agent, 1 if success else 0, session_id, now_text()),
         )
+        conn.execute(
+            """
+            DELETE FROM login_events
+            WHERE id NOT IN (
+                SELECT id
+                FROM login_events
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+            )
+            """,
+            (LOGIN_EVENT_KEEP_LIMIT,),
+        )
 
 
 def mark_session_logged_out(session_id: str) -> None:
@@ -1420,8 +1433,9 @@ def admin_dashboard_data() -> dict:
             SELECT ip, user_agent, success, created_at
             FROM login_events
             ORDER BY created_at DESC, id DESC
-            LIMIT 60
-            """
+            LIMIT ?
+            """,
+            (LOGIN_EVENT_KEEP_LIMIT,),
         ).fetchall()
         counters = conn.execute(
             """
