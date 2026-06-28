@@ -117,6 +117,36 @@
               <button class="secondary compact" type="button" id="refresh-history-btn">刷新</button>
             </div>
           </div>
+          <div class="history-search" role="search" aria-label="历史记录搜索">
+            <div class="field">
+              <label for="history-keyword">关键词</label>
+              <input id="history-keyword" type="search" placeholder="活动、班级、姓名、学号" />
+            </div>
+            <div class="field">
+              <label for="history-date">活动日期</label>
+              <input id="history-date" type="date" />
+            </div>
+            <div class="field">
+              <label for="history-page-size">每页</label>
+              <select id="history-page-size">
+                <option value="10">10 条</option>
+                <option value="20">20 条</option>
+                <option value="50">50 条</option>
+              </select>
+            </div>
+            <div class="history-search-actions">
+              <button class="primary compact" type="button" id="history-search-btn">搜索</button>
+              <button class="secondary compact" type="button" id="history-clear-search-btn">重置</button>
+            </div>
+          </div>
+          <div class="history-pagination">
+            <span id="history-result-summary">共 0 条</span>
+            <div class="history-page-actions">
+              <button class="secondary compact" type="button" id="history-prev-page-btn">上一页</button>
+              <span id="history-page-info">第 1 / 1 页</span>
+              <button class="secondary compact" type="button" id="history-next-page-btn">下一页</button>
+            </div>
+          </div>
           <div class="history-list" id="history-list"></div>
         </section>
       </section>

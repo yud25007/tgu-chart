@@ -13,6 +13,15 @@ const refreshHistoryButton = document.querySelector("#refresh-history-btn");
 const toggleHistorySelectionButton = document.querySelector("#toggle-history-selection-btn");
 const bulkDeleteHistoryButton = document.querySelector("#bulk-delete-history-btn");
 const historySelectedCount = document.querySelector("#history-selected-count");
+const historyKeywordInput = document.querySelector("#history-keyword");
+const historyDateInput = document.querySelector("#history-date");
+const historyPageSizeSelect = document.querySelector("#history-page-size");
+const historySearchButton = document.querySelector("#history-search-btn");
+const historyClearSearchButton = document.querySelector("#history-clear-search-btn");
+const historyPrevPageButton = document.querySelector("#history-prev-page-btn");
+const historyNextPageButton = document.querySelector("#history-next-page-btn");
+const historyPageInfo = document.querySelector("#history-page-info");
+const historyResultSummary = document.querySelector("#history-result-summary");
 const historyList = document.querySelector("#history-list");
 const pageTitle = document.querySelector("#page-title");
 const titleTypeInputs = Array.from(document.querySelectorAll("input[name='titleType']"));
@@ -49,6 +58,11 @@ const preview = {
 let entries = [{ className: "", name: "", studentId: "", points: "", count: "" }];
 let historyRecords = [];
 const selectedHistoryIds = new Set();
+let historyPage = 1;
+let historyPageSize = 10;
+let historyTotal = 0;
+let historyTotalPages = 1;
+let historyFilters = { keyword: "", date: "" };
 let titleTypeTouched = false;
 
 function todayISO() {
@@ -316,6 +330,30 @@ function validateEntries(payload) {
   }
 }
 
+function hasHistoryFilters() {
+  return Boolean(historyFilters.keyword || historyFilters.date);
+}
+
+function historyQueryString() {
+  const params = new URLSearchParams({
+    page: String(historyPage),
+    pageSize: String(historyPageSize),
+  });
+  if (historyFilters.keyword) params.set("keyword", historyFilters.keyword);
+  if (historyFilters.date) params.set("date", historyFilters.date);
+  return params.toString();
+}
+
+function updateHistoryPaginationControls() {
+  historyResultSummary.textContent = historyTotal
+    ? `共 ${historyTotal} 条，本页 ${historyRecords.length} 条`
+    : (hasHistoryFilters() ? "未找到匹配记录" : "共 0 条");
+  historyPageInfo.textContent = `第 ${historyPage} / ${historyTotalPages} 页`;
+  historyPrevPageButton.disabled = historyPage <= 1;
+  historyNextPageButton.disabled = historyPage >= historyTotalPages;
+  historyPageSizeSelect.value = String(historyPageSize);
+}
+
 function historyMeta(record) {
   const parts = [
     record.date,
@@ -348,7 +386,7 @@ function renderHistory() {
     updateHistorySelectionControls();
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = "还没有生成记录。";
+    empty.textContent = hasHistoryFilters() ? "没有符合条件的历史记录。" : "还没有生成记录。";
     historyList.append(empty);
     return;
   }
@@ -401,18 +439,29 @@ function renderHistory() {
   updateHistorySelectionControls();
 }
 
-async function refreshHistory() {
+async function refreshHistory({ resetPage = false } = {}) {
+  if (resetPage) historyPage = 1;
   try {
-    const response = await fetch("/history");
+    const response = await fetch(`/history?${historyQueryString()}`);
     const result = await response.json();
     if (!response.ok || !result.ok) {
       throw new Error(result.message || "读取历史记录失败");
     }
     historyRecords = result.records || [];
+    const pagination = result.pagination || {};
+    historyPage = pagination.page || historyPage;
+    historyPageSize = pagination.pageSize || historyPageSize;
+    historyTotal = pagination.total || 0;
+    historyTotalPages = pagination.totalPages || 1;
     renderHistory();
+    updateHistoryPaginationControls();
   } catch (error) {
     selectedHistoryIds.clear();
+    historyRecords = [];
+    historyTotal = 0;
+    historyTotalPages = 1;
     updateHistorySelectionControls();
+    updateHistoryPaginationControls();
     historyList.innerHTML = `<div class="history-empty">${error.message}</div>`;
   }
 }
@@ -481,6 +530,31 @@ async function deleteSelectedHistoryRecords() {
   await refreshHistory();
   const missingText = result.missingIds?.length ? `，${result.missingIds.length} 条已不存在` : "";
   setMessage(`已批量删除 ${result.deletedCount || 0} 条历史记录${missingText}。`, "success");
+}
+
+function applyHistorySearch() {
+  historyFilters = {
+    keyword: historyKeywordInput.value.trim(),
+    date: historyDateInput.value,
+  };
+  selectedHistoryIds.clear();
+  refreshHistory({ resetPage: true });
+}
+
+function clearHistorySearch() {
+  historyKeywordInput.value = "";
+  historyDateInput.value = "";
+  historyFilters = { keyword: "", date: "" };
+  selectedHistoryIds.clear();
+  refreshHistory({ resetPage: true });
+}
+
+function changeHistoryPage(nextPage) {
+  const boundedPage = Math.max(1, Math.min(nextPage, historyTotalPages));
+  if (boundedPage === historyPage) return;
+  historyPage = boundedPage;
+  selectedHistoryIds.clear();
+  refreshHistory();
 }
 
 async function logout() {
@@ -690,7 +764,7 @@ async function generateWord(event) {
     anchor.remove();
     URL.revokeObjectURL(url);
     setMessage("Word 已生成并开始下载。", "success");
-    refreshHistory();
+    refreshHistory({ resetPage: true });
   } catch (error) {
     setMessage(error.message, "error");
   } finally {
@@ -776,6 +850,22 @@ form.addEventListener("submit", generateWord);
 resetButton.addEventListener("click", resetForm);
 logoutButton.addEventListener("click", logout);
 refreshHistoryButton.addEventListener("click", refreshHistory);
+historySearchButton.addEventListener("click", applyHistorySearch);
+historyClearSearchButton.addEventListener("click", clearHistorySearch);
+historyKeywordInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    applyHistorySearch();
+  }
+});
+historyDateInput.addEventListener("change", applyHistorySearch);
+historyPageSizeSelect.addEventListener("change", () => {
+  historyPageSize = Number(historyPageSizeSelect.value) || 10;
+  selectedHistoryIds.clear();
+  refreshHistory({ resetPage: true });
+});
+historyPrevPageButton.addEventListener("click", () => changeHistoryPage(historyPage - 1));
+historyNextPageButton.addEventListener("click", () => changeHistoryPage(historyPage + 1));
 toggleHistorySelectionButton.addEventListener("click", toggleHistorySelection);
 bulkDeleteHistoryButton.addEventListener("click", async () => {
   try {

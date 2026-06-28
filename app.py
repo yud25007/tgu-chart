@@ -936,18 +936,110 @@ def save_generation_record(data: dict, filename: str) -> int:
     return record_id
 
 
-def list_records(limit: int = 30) -> list[dict]:
-    limit = max(1, min(limit, 100))
-    with db_connect() as conn:
-        rows = conn.execute(
+def bounded_int(value: object, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(str(value))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(number, maximum))
+
+
+def normalize_history_query(query: str) -> dict:
+    params = parse_qs(query)
+    keyword = clean_optional_text(params.get("keyword", [""])[0], 80)
+    activity_date = clean_optional_text(params.get("date", [""])[0], 20)
+    if activity_date:
+        try:
+            datetime.strptime(activity_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValidationError("日期格式无效")
+
+    return {
+        "page": bounded_int(params.get("page", ["1"])[0], 1, 1, 100000),
+        "page_size": bounded_int(params.get("pageSize", ["10"])[0], 10, 5, 50),
+        "keyword": keyword,
+        "activity_date": activity_date,
+    }
+
+
+def history_where_clause(keyword: str, activity_date: str) -> tuple[str, list[str]]:
+    clauses: list[str] = []
+    args: list[str] = []
+
+    if keyword:
+        like_value = f"%{keyword}%"
+        clauses.append(
             """
+            (
+                activity_name LIKE ?
+                OR credit_type LIKE ?
+                OR output_filename LIKE ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM record_entries
+                    WHERE record_entries.record_id = records.id
+                      AND (
+                          class_name LIKE ?
+                          OR name LIKE ?
+                          OR student_id LIKE ?
+                          OR points LIKE ?
+                          OR count_value LIKE ?
+                      )
+                )
+            )
+            """
+        )
+        args.extend([like_value] * 8)
+
+    if activity_date:
+        clauses.append("activity_date = ?")
+        args.append(activity_date)
+
+    if not clauses:
+        return "", []
+    return "WHERE " + " AND ".join(clauses), args
+
+
+def list_records(page: int = 1, page_size: int = 10, keyword: str = "", activity_date: str = "") -> dict:
+    page = max(1, page)
+    page_size = max(5, min(page_size, 50))
+    where_sql, args = history_where_clause(keyword, activity_date)
+
+    with db_connect() as conn:
+        total = int(
+            conn.execute(
+                f"SELECT COUNT(*) FROM records {where_sql}",
+                args,
+            ).fetchone()[0]
+        )
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, total_pages)
+        offset = (page - 1) * page_size
+        rows = conn.execute(
+            f"""
             SELECT * FROM records
+            {where_sql}
             ORDER BY created_at DESC, id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (limit,),
+            [*args, page_size, offset],
         ).fetchall()
-    return [record_to_client(row) for row in rows]
+
+    return {
+        "records": [record_to_client(row) for row in rows],
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "total": total,
+            "totalPages": total_pages,
+            "hasPrevious": page > 1,
+            "hasNext": page < total_pages,
+        },
+        "filters": {
+            "keyword": keyword,
+            "date": activity_date,
+        },
+    }
 
 
 def get_record(record_id: int) -> dict | None:
@@ -1361,7 +1453,12 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             self.send_json(admin_dashboard_data())
             return
         if path == "/history":
-            self.send_json({"ok": True, "records": list_records()})
+            try:
+                history_query = normalize_history_query(parsed.query)
+            except ValidationError as exc:
+                self.send_json({"ok": False, "message": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                return
+            self.send_json({"ok": True, **list_records(**history_query)})
             return
         if path.startswith("/record/"):
             record_id = self.record_id_from_path(path)

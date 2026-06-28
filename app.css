@@ -36,6 +36,7 @@ body {
 
 button,
 input,
+select,
 textarea,
 .button-link {
   font: inherit;
@@ -43,6 +44,7 @@ textarea,
 
 button,
 input,
+select,
 textarea,
 .button-link,
 .history-item,
@@ -249,6 +251,7 @@ label {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   min-width: 0;
@@ -285,6 +288,7 @@ input[type="file"]::file-selector-button {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(114, 36, 108, 0.15);
@@ -517,6 +521,58 @@ button:disabled {
   font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.history-search {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 0.95fr) minmax(92px, 0.56fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.history-search input,
+.history-search select {
+  min-height: 40px;
+}
+
+.history-search-actions,
+.history-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.history-search-actions {
+  min-width: 164px;
+}
+
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+#history-result-summary,
+#history-page-info {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+#history-result-summary {
+  color: var(--accent-strong);
 }
 
 .history-list {
@@ -963,6 +1019,34 @@ button:disabled {
     flex: 1 1 92px;
   }
 
+  .history-search {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .history-search .field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .history-search-actions {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .history-search-actions .compact,
+  .history-page-actions .compact {
+    flex: 1 1 96px;
+  }
+
+  .history-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-page-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .history-actions .compact {
     flex: 1 1 86px;
   }
@@ -1048,6 +1132,15 @@ button:disabled {
 
   .history-main .status-pill {
     grid-column: 2;
+  }
+
+  .history-search {
+    grid-template-columns: 1fr;
+  }
+
+  .history-search .field:first-child,
+  .history-search-actions {
+    grid-column: auto;
   }
 
   textarea {
