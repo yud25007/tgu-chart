@@ -116,9 +116,9 @@ async function refreshAdminData() {
 
 async function logout() {
   try {
-    await fetch("/logout", { method: "POST" });
+    await fetch("/admin-logout", { method: "POST" });
   } finally {
-    window.location.href = "/login";
+    window.location.href = "/admin-login";
   }
 }
 

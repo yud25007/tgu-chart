@@ -46,8 +46,13 @@ AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "").strip()
 if not AUTH_PASSWORD:
     print("缺少 AUTH_PASSWORD 环境变量。请复制 .env.example 为 .env 并设置访问密码。", file=sys.stderr)
     raise SystemExit(1)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
+if not ADMIN_PASSWORD:
+    print("缺少 ADMIN_PASSWORD 环境变量。请复制 .env.example 为 .env 并设置后台密码。", file=sys.stderr)
+    raise SystemExit(1)
 AUTH_SECRET = os.environ.get("AUTH_SECRET") or hashlib.sha256(f"{AUTH_PASSWORD}|{BASE_DIR}".encode("utf-8")).hexdigest()
 AUTH_COOKIE_NAME = "tgu_chart_auth"
+ADMIN_AUTH_COOKIE_NAME = "tgu_chart_admin_auth"
 AUTH_MAX_AGE = 60 * 60 * 24 * 7
 AUTH_ONLINE_WINDOW = int(os.environ.get("AUTH_ONLINE_WINDOW_SECONDS", str(15 * 60)))
 APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Shanghai"))
@@ -110,6 +115,58 @@ LOGIN_PAGE = """<!doctype html>
           if (!response.ok || !result.ok) throw new Error(result.message || "登录失败");
           const next = new URLSearchParams(window.location.search).get("next") || "/";
           window.location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+        } catch (error) {
+          message.textContent = error.message;
+          message.className = "message error";
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
+"""
+ADMIN_LOGIN_PAGE = """<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>后台登录 - 学分记录表工具</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="login-card" aria-labelledby="login-title">
+        <p class="eyebrow">电气工程学院</p>
+        <h1 id="login-title">后台登录</h1>
+        <form id="login-form" autocomplete="off">
+          <label for="password">后台密码</label>
+          <input id="password" name="password" type="password" required autofocus />
+          <button class="primary" type="submit" id="login-submit">登录后台</button>
+        </form>
+        <p class="message" id="login-message" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+    <script>
+      const form = document.querySelector("#login-form");
+      const submit = document.querySelector("#login-submit");
+      const message = document.querySelector("#login-message");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        message.textContent = "正在登录...";
+        message.className = "message";
+        submit.disabled = true;
+        try {
+          const password = document.querySelector("#password").value;
+          const response = await fetch("/admin-login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.message || "登录失败");
+          const next = new URLSearchParams(window.location.search).get("next") || "/admin";
+          window.location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/admin";
         } catch (error) {
           message.textContent = error.message;
           message.className = "message error";
@@ -1211,8 +1268,18 @@ def sign_auth_value(session_id: str, expires_at: int) -> str:
     return hmac.new(AUTH_SECRET.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
+def sign_admin_auth_value(session_id: str, expires_at: int) -> str:
+    message = f"admin:{session_id}:{expires_at}".encode("utf-8")
+    key = f"{AUTH_SECRET}|admin|{ADMIN_PASSWORD}".encode("utf-8")
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+
 def create_auth_cookie_value(session_id: str, expires_at: int) -> str:
     return f"{session_id}:{expires_at}:{sign_auth_value(session_id, expires_at)}"
+
+
+def create_admin_auth_cookie_value(session_id: str, expires_at: int) -> str:
+    return f"{session_id}:{expires_at}:{sign_admin_auth_value(session_id, expires_at)}"
 
 
 def parse_auth_cookie_value(value: str) -> tuple[str, int] | None:
@@ -1226,6 +1293,21 @@ def parse_auth_cookie_value(value: str) -> tuple[str, int] | None:
     if expires_at < int(time.time()):
         return None
     if not hmac.compare_digest(signature, sign_auth_value(session_id, expires_at)):
+        return None
+    return session_id, expires_at
+
+
+def parse_admin_auth_cookie_value(value: str) -> tuple[str, int] | None:
+    try:
+        session_id, expires_text, signature = value.split(":", 2)
+        expires_at = int(expires_text)
+    except (TypeError, ValueError):
+        return None
+    if not session_id or len(session_id) > 120:
+        return None
+    if expires_at < int(time.time()):
+        return None
+    if not hmac.compare_digest(signature, sign_admin_auth_value(session_id, expires_at)):
         return None
     return session_id, expires_at
 
@@ -1399,7 +1481,7 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
     def user_agent(self) -> str:
         return compact_header_value(self.headers.get("User-Agent", ""))
 
-    def auth_cookie_value(self) -> str:
+    def cookie_value(self, name: str) -> str:
         cookie_header = self.headers.get("Cookie", "")
         if not cookie_header:
             return ""
@@ -1408,8 +1490,14 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             cookies.load(cookie_header)
         except Exception:
             return ""
-        morsel = cookies.get(AUTH_COOKIE_NAME)
+        morsel = cookies.get(name)
         return morsel.value if morsel is not None else ""
+
+    def auth_cookie_value(self) -> str:
+        return self.cookie_value(AUTH_COOKIE_NAME)
+
+    def admin_auth_cookie_value(self) -> str:
+        return self.cookie_value(ADMIN_AUTH_COOKIE_NAME)
 
     def is_authenticated(self) -> bool:
         if hasattr(self, "_authenticated"):
@@ -1419,9 +1507,28 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
         self._authenticated = bool(session_id)
         return bool(session_id)
 
+    def is_admin_authenticated(self) -> bool:
+        if hasattr(self, "_admin_authenticated"):
+            return bool(self._admin_authenticated)
+        parsed = parse_admin_auth_cookie_value(self.admin_auth_cookie_value())
+        self._admin_authenticated = parsed is not None
+        return bool(parsed)
+
     def auth_cookie_header(self, session_id: str, expires_at: int) -> str:
         parts = [
             f"{AUTH_COOKIE_NAME}={create_auth_cookie_value(session_id, expires_at)}",
+            "Path=/",
+            f"Max-Age={AUTH_MAX_AGE}",
+            "HttpOnly",
+            "SameSite=Lax",
+        ]
+        if self.is_secure_request():
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def admin_auth_cookie_header(self, session_id: str, expires_at: int) -> str:
+        parts = [
+            f"{ADMIN_AUTH_COOKIE_NAME}={create_admin_auth_cookie_value(session_id, expires_at)}",
             "Path=/",
             f"Max-Age={AUTH_MAX_AGE}",
             "HttpOnly",
@@ -1449,6 +1556,18 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             parts.append("Secure")
         return "; ".join(parts)
 
+    def clear_admin_auth_cookie_header(self) -> str:
+        parts = [
+            f"{ADMIN_AUTH_COOKIE_NAME}=",
+            "Path=/",
+            "Max-Age=0",
+            "HttpOnly",
+            "SameSite=Lax",
+        ]
+        if self.is_secure_request():
+            parts.append("Secure")
+        return "; ".join(parts)
+
     def send_redirect(self, location: str) -> None:
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", location)
@@ -1457,6 +1576,15 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
 
     def send_login_page(self) -> None:
         body = LOGIN_PAGE.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_admin_login_page(self) -> None:
+        body = ADMIN_LOGIN_PAGE.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -1473,6 +1601,16 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             if parsed.query:
                 next_path = f"{next_path}?{parsed.query}"
             self.send_redirect(f"/login?next={quote(next_path)}")
+
+    def send_admin_auth_required(self, *, as_json: bool = True) -> None:
+        if as_json:
+            self.send_json({"ok": False, "message": "请先登录后台"}, status=HTTPStatus.UNAUTHORIZED)
+        else:
+            parsed = urlparse(self.path)
+            next_path = parsed.path or "/admin"
+            if parsed.query:
+                next_path = f"{next_path}?{parsed.query}"
+            self.send_redirect(f"/admin-login?next={quote(next_path)}")
 
     def send_static_file(self, file_path: Path) -> None:
         content_type, _ = mimetypes.guess_type(file_path.name)
@@ -1495,6 +1633,12 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_login_page()
             return
+        if path == "/admin-login":
+            if self.is_admin_authenticated():
+                self.send_redirect("/admin")
+            else:
+                self.send_admin_login_page()
+            return
         if path in {"/favicon.ico", "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"}:
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_headers()
@@ -1505,13 +1649,27 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
                 self.send_static_file(file_path)
                 return
 
-        if not self.is_authenticated():
-            self.send_auth_required(as_json=path.startswith(("/history", "/record/", "/admin-data")))
+        if path in {"/admin", "/admin.html", "/admin.js"}:
+            if not self.is_admin_authenticated():
+                self.send_admin_auth_required(as_json=False)
+                return
+            file_path = STATIC_FILES.get(path)
+            if file_path and file_path.exists():
+                self.send_static_file(file_path)
+                return
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
             return
-
         if path == "/admin-data":
+            if not self.is_admin_authenticated():
+                self.send_admin_auth_required(as_json=True)
+                return
             self.send_json(admin_dashboard_data())
             return
+
+        if not self.is_authenticated():
+            self.send_auth_required(as_json=path.startswith(("/history", "/record/")))
+            return
+
         if path == "/history":
             try:
                 history_query = normalize_history_query(parsed.query)
@@ -1551,6 +1709,12 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/admin-login":
+            self.handle_admin_login()
+            return
+        if parsed.path == "/admin-logout":
+            self.handle_admin_logout()
+            return
         if parsed.path == "/login":
             self.handle_login()
             return
@@ -1665,12 +1829,54 @@ class AutoFormHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def handle_admin_login(self) -> None:
+        ip = self.client_ip()
+        user_agent = self.user_agent()
+        try:
+            body = self.read_request_body(16 * 1024)
+            content_type = self.headers.get("Content-Type", "")
+            if "application/json" in content_type:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                password = str(payload.get("password", ""))
+            else:
+                form = parse_qs(body.decode("utf-8"))
+                password = form.get("password", [""])[0]
+        except Exception:
+            record_login_event(ip, user_agent, False)
+            self.send_json({"ok": False, "message": "登录请求无效"}, status=HTTPStatus.BAD_REQUEST)
+            return
+
+        if not hmac.compare_digest(password, ADMIN_PASSWORD):
+            record_login_event(ip, user_agent, False)
+            self.send_json({"ok": False, "message": "后台密码错误"}, status=HTTPStatus.UNAUTHORIZED)
+            return
+
+        session_id = secrets.token_urlsafe(32)
+        expires_at = int(time.time()) + AUTH_MAX_AGE
+        record_login_event(ip, user_agent, True, f"admin:{session_id}")
+        body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", self.admin_auth_cookie_header(session_id, expires_at))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def handle_logout(self) -> None:
         self.expire_current_session()
         body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Set-Cookie", self.clear_auth_cookie_header())
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_admin_logout(self) -> None:
+        body = json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Set-Cookie", self.clear_admin_auth_cookie_header())
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

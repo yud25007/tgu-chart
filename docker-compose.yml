@@ -10,6 +10,7 @@ services:
       DATA_DIR: /app/data
       OUTPUT_DIR: /app/output/doc
       AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       AUTH_SECRET: ${AUTH_SECRET:-}
       APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
     ports:
