@@ -238,6 +238,63 @@ def clean_optional_text(value: object, max_length: int = 80) -> str:
     return text
 
 
+def normalize_activity_date(value: object, label: str = "日期", required: bool = True) -> str:
+    text = clean_optional_text(value, 40)
+    if not text:
+        if required:
+            raise ValidationError(f"请填写{label}")
+        return ""
+
+    normalized = (
+        text.replace("／", "/")
+        .replace("．", ".")
+        .replace("。", ".")
+        .replace("－", "-")
+        .replace("—", "-")
+        .replace("–", "-")
+    )
+    match = re.fullmatch(
+        r"\s*(20\d{2})\s*(?:[-/._]|年)\s*(\d{1,2})\s*(?:[-/._]|月)\s*(\d{1,2})\s*日?\s*",
+        normalized,
+    )
+    if not match:
+        raise ValidationError(f"{label}格式无效")
+
+    try:
+        parsed = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    except ValueError:
+        raise ValidationError(f"{label}格式无效") from None
+    return parsed.strftime("%Y-%m-%d")
+
+
+def activity_date_variants(iso_date: str) -> list[str]:
+    parsed = datetime.strptime(iso_date, "%Y-%m-%d")
+    year = parsed.year
+    month = parsed.month
+    day = parsed.day
+    variants = [
+        iso_date,
+        f"{year}-{month}-{day}",
+        f"{year}/{month:02d}/{day:02d}",
+        f"{year}/{month}/{day}",
+        f"{year}.{month:02d}.{day:02d}",
+        f"{year}.{month}.{day}",
+        f"{year}_{month:02d}_{day:02d}",
+        f"{year}_{month}_{day}",
+        f"{year}年{month:02d}月{day:02d}日",
+        f"{year}年{month}月{day}日",
+        f"{year}年{month}月{day}",
+    ]
+    return list(dict.fromkeys(variants))
+
+
+def normalize_activity_date_for_client(value: object) -> str:
+    try:
+        return normalize_activity_date(value, required=False)
+    except ValidationError:
+        return str(value or "")
+
+
 def infer_title_type(credit_type: str) -> str:
     return "practice" if "实践" in credit_type else "ideology"
 
@@ -392,7 +449,7 @@ def normalize_payload(payload: dict) -> dict:
 
     return {
         "activity_name": require_text(payload, "activityName", "活动名称", 120),
-        "date": require_text(payload, "date", "日期", 40),
+        "date": normalize_activity_date(payload.get("date")),
         "score_mode": score_mode,
         "default_points": default_points,
         "entries": entries,
@@ -403,8 +460,9 @@ def normalize_payload(payload: dict) -> dict:
 
 def display_date(raw: str) -> str:
     try:
-        parsed = datetime.strptime(raw, "%Y-%m-%d")
-    except ValueError:
+        iso_date = normalize_activity_date(raw, required=False)
+        parsed = datetime.strptime(iso_date, "%Y-%m-%d")
+    except (ValidationError, ValueError):
         return raw
     return f"{parsed.year}年{parsed.month}月{parsed.day}日"
 
@@ -865,7 +923,7 @@ def record_to_client(row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
         "activityName": row["activity_name"],
-        "date": row["activity_date"],
+        "date": normalize_activity_date_for_client(row["activity_date"]),
         "titleType": title_type,
         "scoreMode": row["score_mode"] if "score_mode" in row.keys() else "points",
         "recordTitle": document_title_text(title_type),
@@ -949,10 +1007,7 @@ def normalize_history_query(query: str) -> dict:
     keyword = clean_optional_text(params.get("keyword", [""])[0], 80)
     activity_date = clean_optional_text(params.get("date", [""])[0], 20)
     if activity_date:
-        try:
-            datetime.strptime(activity_date, "%Y-%m-%d")
-        except ValueError:
-            raise ValidationError("日期格式无效")
+        activity_date = normalize_activity_date(activity_date, "日期")
 
     return {
         "page": bounded_int(params.get("page", ["1"])[0], 1, 1, 100000),
@@ -972,6 +1027,7 @@ def history_where_clause(keyword: str, activity_date: str) -> tuple[str, list[st
             """
             (
                 activity_name LIKE ?
+                OR activity_date LIKE ?
                 OR credit_type LIKE ?
                 OR output_filename LIKE ?
                 OR EXISTS (
@@ -989,11 +1045,13 @@ def history_where_clause(keyword: str, activity_date: str) -> tuple[str, list[st
             )
             """
         )
-        args.extend([like_value] * 8)
+        args.extend([like_value] * 9)
 
     if activity_date:
-        clauses.append("activity_date = ?")
-        args.append(activity_date)
+        variants = activity_date_variants(activity_date)
+        placeholders = ", ".join("?" for _ in variants)
+        clauses.append(f"activity_date IN ({placeholders})")
+        args.extend(variants)
 
     if not clauses:
         return "", []
