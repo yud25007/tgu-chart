@@ -1028,6 +1028,8 @@ def history_where_clause(keyword: str, activity_date: str) -> tuple[str, list[st
             (
                 activity_name LIKE ?
                 OR activity_date LIKE ?
+                OR created_at LIKE ?
+                OR updated_at LIKE ?
                 OR credit_type LIKE ?
                 OR output_filename LIKE ?
                 OR EXISTS (
@@ -1045,13 +1047,13 @@ def history_where_clause(keyword: str, activity_date: str) -> tuple[str, list[st
             )
             """
         )
-        args.extend([like_value] * 9)
+        args.extend([like_value] * 11)
 
     if activity_date:
         variants = activity_date_variants(activity_date)
         placeholders = ", ".join("?" for _ in variants)
-        clauses.append(f"activity_date IN ({placeholders})")
-        args.extend(variants)
+        clauses.append(f"(activity_date IN ({placeholders}) OR created_at LIKE ? OR updated_at LIKE ?)")
+        args.extend([*variants, f"{activity_date}%", f"{activity_date}%"])
 
     if not clauses:
         return "", []
